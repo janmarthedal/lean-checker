@@ -10,6 +10,7 @@ type ExprIdx = usize;
  * <nidx'> #NI <nidx> <integer>
  */
 
+#[derive(Debug, PartialEq)]
 pub enum NameItem {
     Str(String),
     Int(usize),
@@ -24,6 +25,7 @@ impl fmt::Display for NameItem {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct Name {
     item: NameItem,
     parent: NameIdx, // Special value 0 for item with no parent
@@ -36,6 +38,7 @@ struct Name {
  * <uidx'> #UP  <nidx>
  */
 
+#[derive(Debug, PartialEq)]
 enum Univ {
     Zero,
     Succ(UnivIdx),
@@ -90,21 +93,77 @@ impl Environment {
         }
     }
 
+    fn has_name(&self, idx: NameIdx) {
+        assert_ne!(self.names.get(&idx), None);
+    }
+
+    fn has_univ(&self, idx: UnivIdx) {
+        assert_ne!(self.univs.get(&idx), None);
+    }
+
     pub fn add_name(&mut self, idx: NameIdx, item: NameItem, parent: NameIdx) {
-        let name = Name { item, parent };
-        self.names.insert(idx, name);
+        assert_eq!(self.names.get(&idx), None);
+        if parent != 0 {
+            self.has_name(parent);
+        }
+        self.names.insert(idx, Name { item, parent });
     }
 
     pub fn name_to_string(&self, name_idx: NameIdx) -> String {
         let mut items: Vec<String> = Vec::new();
         let mut idx = name_idx;
         while idx != 0 {
-            let item = self.names.get(&idx).expect("Name idx not found");
+            let item = self.names.get(&idx).expect("Name not found");
             items.push(item.item.to_string());
             idx = item.parent;
         }
         items.reverse();
         items.join(".")
+    }
+
+    pub fn add_univ_succ(&mut self, uidxp: UnivIdx, uidx: UnivIdx) {
+        assert_eq!(self.univs.get(&uidxp), None);
+        self.has_univ(uidx);
+        self.univs.insert(uidxp, Univ::Succ(uidx));
+    }
+
+    pub fn add_univ_max(&mut self, uidxp: UnivIdx, uidx1: UnivIdx, uidx2: UnivIdx) {
+        assert_eq!(self.univs.get(&uidxp), None);
+        self.has_univ(uidx1);
+        self.has_univ(uidx2);
+        self.univs.insert(uidxp, Univ::Max(uidx1, uidx2));
+    }
+
+    pub fn add_univ_imax(&mut self, uidxp: UnivIdx, uidx1: UnivIdx, uidx2: UnivIdx) {
+        assert_eq!(self.univs.get(&uidxp), None);
+        self.has_univ(uidx1);
+        self.has_univ(uidx2);
+        self.univs.insert(uidxp, Univ::IMax(uidx1, uidx2));
+    }
+
+    pub fn add_univ_param(&mut self, uidxp: UnivIdx, nidx: NameIdx) {
+        assert_eq!(self.univs.get(&uidxp), None);
+        self.has_name(nidx);
+        self.univs.insert(uidxp, Univ::Param(nidx));
+    }
+
+    pub fn univ_to_string(&self, uidx: UnivIdx) -> String {
+        let univ = self.univs.get(&uidx).expect("Univ not found");
+        match univ {
+            Univ::Zero => "0".to_string(),
+            Univ::Succ(u) => format!("(succ {})", self.univ_to_string(*u)),
+            Univ::Max(u1, u2) => format!(
+                "(max {} {})",
+                self.univ_to_string(*u1),
+                self.univ_to_string(*u2)
+            ),
+            Univ::IMax(u1, u2) => format!(
+                "(imax {} {})",
+                self.univ_to_string(*u1),
+                self.univ_to_string(*u2)
+            ),
+            Univ::Param(n) => self.name_to_string(*n),
+        }
     }
 }
 
@@ -129,5 +188,29 @@ mod tests {
         assert_eq!(env.name_to_string(2), "foo.bla");
         assert_eq!(env.name_to_string(3), "foo.bla.1");
         assert_eq!(env.name_to_string(4), "foo.bla.1.boo");
+    }
+
+    #[test]
+    fn universes() {
+        let mut env = Environment::new();
+        /*
+         * 1 #NS 0 l1
+         * 2 #NS 0 l2
+         * 1 #US 0
+         * 2 #US 1
+         * 3 #UP 1
+         * 4 #UP 2
+         * 5 #UM 2 3
+         * 6 #UIM 5 4
+         */
+        env.add_name(1, NameItem::Str("l1".to_string()), 0);
+        env.add_name(2, NameItem::Str("l2".to_string()), 0);
+        env.add_univ_succ(1, 0);
+        env.add_univ_succ(2, 1);
+        env.add_univ_param(3, 1);
+        env.add_univ_param(4, 2);
+        env.add_univ_max(5, 2, 3);
+        env.add_univ_imax(6, 5, 4);
+        assert_eq!(env.univ_to_string(6), "(imax (max (succ (succ 0)) l1) l2)");
     }
 }
