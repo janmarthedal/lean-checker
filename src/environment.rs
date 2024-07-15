@@ -60,18 +60,29 @@ enum Univ {
  * <eidx'> #ELS <hex>*      // String as UTF8 bytes in hex
  */
 
-enum InfoAnnotation {
+pub enum InfoAnnotation {
     Paren,       // #BD
     Curly,       // #BI
     DoubleCurly, // #BS
     Square,      // #BC
 }
 
+impl InfoAnnotation {
+    fn to_delims(&self) -> (&'static str, &'static str) {
+        match self {
+            InfoAnnotation::Paren => ("(", ")"),
+            InfoAnnotation::Curly => ("{", "}"),
+            InfoAnnotation::DoubleCurly => ("{{", "}}"),
+            InfoAnnotation::Square => ("[", "]"),
+        }
+    }
+}
+
 enum Expr {
     BoundVar(usize),
     Sort(UnivIdx),
-    Constant(NameIdx, Vec<UnivIdx>),
-    FunAppl(ExprIdx, ExprIdx),
+    // Constant(NameIdx, Vec<UnivIdx>),
+    // FunAppl(ExprIdx, ExprIdx),
     Lambda(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
     Pi(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
 }
@@ -99,6 +110,10 @@ impl Environment {
 
     fn has_univ(&self, idx: UnivIdx) {
         assert!(self.univs.contains_key(&idx));
+    }
+
+    fn has_expr(&self, idx: ExprIdx) {
+        assert!(self.exprs.contains_key(&idx));
     }
 
     pub fn add_name(&mut self, idx: NameIdx, item: NameItem, parent: NameIdx) {
@@ -177,12 +192,91 @@ impl Environment {
         self.exprs.insert(eidxp, Expr::BoundVar(i));
     }
 
-    pub fn expr_to_string(&self, eidx: ExprIdx) -> String {
+    pub fn add_expr_pi(
+        &mut self,
+        eidxp: ExprIdx,
+        info: InfoAnnotation,
+        nidx: NameIdx,
+        eidx1: ExprIdx,
+        eidx2: ExprIdx,
+    ) {
+        assert!(!self.exprs.contains_key(&eidxp));
+        self.has_name(nidx);
+        self.has_expr(eidx1);
+        self.has_expr(eidx2);
+        self.exprs.insert(eidxp, Expr::Pi(info, nidx, eidx1, eidx2));
+    }
+
+    pub fn add_expr_lambda(
+        &mut self,
+        eidxp: ExprIdx,
+        info: InfoAnnotation,
+        nidx: NameIdx,
+        eidx1: ExprIdx,
+        eidx2: ExprIdx,
+    ) {
+        assert!(!self.exprs.contains_key(&eidxp));
+        self.has_name(nidx);
+        self.has_expr(eidx1);
+        self.has_expr(eidx2);
+        self.exprs
+            .insert(eidxp, Expr::Lambda(info, nidx, eidx1, eidx2));
+    }
+
+    pub fn expr_to_string(&self, eidx: ExprIdx, var_stack: &Option<Vec<String>>) -> String {
         let expr = self.exprs.get(&eidx).expect("Expr not found");
         match expr {
             Expr::Sort(u) => format!("Sort {}", self.univ_to_string(*u)),
-            Expr::BoundVar(i) => format!("var[{}]", i),
-            _ => todo!(),
+            Expr::BoundVar(i) => match var_stack {
+                Some(vs) => {
+                    if *i < vs.len() {
+                        vs[*i].to_string()
+                    } else {
+                        format!("<{}>", i)
+                    }
+                }
+                None => format!("<{}>", i),
+            },
+            Expr::Pi(info, n, i1, i2) => {
+                let delims = info.to_delims();
+                let var_name = self.name_to_string(*n);
+                let new_var_stack = Some(match var_stack {
+                    Some(vs) => {
+                        let mut nvs = vs.clone();
+                        nvs.push(var_name.clone());
+                        nvs
+                    }
+                    None => vec![var_name.clone()],
+                });
+                format!(
+                    "{}{} : {}{}, {}",
+                    delims.0,
+                    var_name,
+                    self.expr_to_string(*i1, &new_var_stack),
+                    delims.1,
+                    self.expr_to_string(*i2, &new_var_stack)
+                )
+            }
+            Expr::Lambda(info, n, i1, i2) => {
+                let delims = info.to_delims();
+                let var_name = self.name_to_string(*n);
+                let new_var_stack = Some(match var_stack {
+                    Some(vs) => {
+                        let mut nvs = vs.clone();
+                        nvs.push(var_name.clone());
+                        nvs
+                    }
+                    None => vec![var_name.clone()],
+                });
+                format!(
+                    "{}{} : {}{}, {}",
+                    delims.0,
+                    var_name,
+                    self.expr_to_string(*i1, &new_var_stack),
+                    delims.1,
+                    self.expr_to_string(*i2, &new_var_stack)
+                )
+            }
         }
     }
 }

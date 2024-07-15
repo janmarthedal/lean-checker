@@ -1,6 +1,6 @@
 use std::io::{prelude::*, BufReader, Read};
 
-use super::environment::{Environment, NameItem};
+use super::environment::{Environment, InfoAnnotation, NameItem};
 
 struct Parser {
     env: Environment,
@@ -8,6 +8,16 @@ struct Parser {
 
 type IResult<T> = Result<T, &'static str>;
 type Index = usize;
+
+fn parse_info_annotation(s: &str) -> IResult<InfoAnnotation> {
+    match s {
+        "#BD" => Ok(InfoAnnotation::Paren),
+        "#BI" => Ok(InfoAnnotation::Curly),
+        "#BS" => Ok(InfoAnnotation::DoubleCurly),
+        "#BC" => Ok(InfoAnnotation::Square),
+        _ => Err("Expecting info tag"),
+    }
+}
 
 fn next(s: &str) -> Option<(&str, &str)> {
     s.find(|c| !char::is_whitespace(c)).map(|p| {
@@ -105,7 +115,7 @@ impl Parser {
     }
 
     fn post_add_expr(&self, idx: Index) {
-        println!("Expr: {}", self.env.expr_to_string(idx));
+        println!("Expr: {}", self.env.expr_to_string(idx, &None));
     }
 
     fn parse_es(&mut self, idx: Index, s: &str) -> IResult<()> {
@@ -124,6 +134,32 @@ impl Parser {
         Ok(())
     }
 
+    // <eidx'> #EP <info> <nidx> <eidx_1> <eidx_2>
+    fn parse_ep(&mut self, idx: Index, s: &str) -> IResult<()> {
+        let (info, rest) = next(s).ok_or("Expecting info")?;
+        let info = parse_info_annotation(info)?;
+        let (nidx, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (eidx1, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (eidx2, rest) = next_idx(rest).ok_or("Expecting index")?;
+        check_eol(rest)?;
+        self.env.add_expr_pi(idx, info, nidx, eidx1, eidx2);
+        self.post_add_expr(idx);
+        Ok(())
+    }
+
+    // <eidx'> #EL <info> <nidx> <eidx_1> <eidx_2>
+    fn parse_el(&mut self, idx: Index, s: &str) -> IResult<()> {
+        let (info, rest) = next(s).ok_or("Expecting info")?;
+        let info = parse_info_annotation(info)?;
+        let (nidx, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (eidx1, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (eidx2, rest) = next_idx(rest).ok_or("Expecting index")?;
+        check_eol(rest)?;
+        self.env.add_expr_lambda(idx, info, nidx, eidx1, eidx2);
+        self.post_add_expr(idx);
+        Ok(())
+    }
+
     fn parse_index_command(&mut self, idx: Index, s: &str) -> IResult<()> {
         let (cmd, rest) = next(s).ok_or("Expecting index command")?;
         match cmd {
@@ -135,6 +171,8 @@ impl Parser {
             "#UP" => self.parse_up(idx, rest),
             "#ES" => self.parse_es(idx, rest),
             "#EV" => self.parse_ev(idx, rest),
+            "#EP" => self.parse_ep(idx, rest),
+            "#EL" => self.parse_el(idx, rest),
             _ => return Err("Unsupported index command"),
         }?;
         Ok(())
