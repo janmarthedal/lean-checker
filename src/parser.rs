@@ -104,6 +104,26 @@ impl Parser {
         Ok(())
     }
 
+    fn post_add_expr(&self, idx: Index) {
+        println!("Expr: {}", self.env.expr_to_string(idx));
+    }
+
+    fn parse_es(&mut self, idx: Index, s: &str) -> IResult<()> {
+        let (u, rest) = next_idx(s).ok_or("Expecting index")?;
+        check_eol(rest)?;
+        self.env.add_expr_sort(idx, u);
+        self.post_add_expr(idx);
+        Ok(())
+    }
+
+    fn parse_ev(&mut self, idx: Index, s: &str) -> IResult<()> {
+        let (i, rest) = next_idx(s).ok_or("Expecting integer")?;
+        check_eol(rest)?;
+        self.env.add_expr_bound_var(idx, i);
+        self.post_add_expr(idx);
+        Ok(())
+    }
+
     fn parse_index_command(&mut self, idx: Index, s: &str) -> IResult<()> {
         let (cmd, rest) = next(s).ok_or("Expecting index command")?;
         match cmd {
@@ -113,6 +133,8 @@ impl Parser {
             "#UM" => self.parse_um(idx, rest),
             "#UIM" => self.parse_uim(idx, rest),
             "#UP" => self.parse_up(idx, rest),
+            "#ES" => self.parse_es(idx, rest),
+            "#EV" => self.parse_ev(idx, rest),
             _ => return Err("Unsupported index command"),
         }?;
         Ok(())

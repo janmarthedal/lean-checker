@@ -94,15 +94,15 @@ impl Environment {
     }
 
     fn has_name(&self, idx: NameIdx) {
-        assert_ne!(self.names.get(&idx), None);
+        assert!(self.names.contains_key(&idx));
     }
 
     fn has_univ(&self, idx: UnivIdx) {
-        assert_ne!(self.univs.get(&idx), None);
+        assert!(self.univs.contains_key(&idx));
     }
 
     pub fn add_name(&mut self, idx: NameIdx, item: NameItem, parent: NameIdx) {
-        assert_eq!(self.names.get(&idx), None);
+        assert!(!self.names.contains_key(&idx));
         if parent != 0 {
             self.has_name(parent);
         }
@@ -122,27 +122,27 @@ impl Environment {
     }
 
     pub fn add_univ_succ(&mut self, uidxp: UnivIdx, uidx: UnivIdx) {
-        assert_eq!(self.univs.get(&uidxp), None);
+        assert!(!self.univs.contains_key(&uidxp));
         self.has_univ(uidx);
         self.univs.insert(uidxp, Univ::Succ(uidx));
     }
 
     pub fn add_univ_max(&mut self, uidxp: UnivIdx, uidx1: UnivIdx, uidx2: UnivIdx) {
-        assert_eq!(self.univs.get(&uidxp), None);
+        assert!(!self.univs.contains_key(&uidxp));
         self.has_univ(uidx1);
         self.has_univ(uidx2);
         self.univs.insert(uidxp, Univ::Max(uidx1, uidx2));
     }
 
     pub fn add_univ_imax(&mut self, uidxp: UnivIdx, uidx1: UnivIdx, uidx2: UnivIdx) {
-        assert_eq!(self.univs.get(&uidxp), None);
+        assert!(!self.univs.contains_key(&uidxp));
         self.has_univ(uidx1);
         self.has_univ(uidx2);
         self.univs.insert(uidxp, Univ::IMax(uidx1, uidx2));
     }
 
     pub fn add_univ_param(&mut self, uidxp: UnivIdx, nidx: NameIdx) {
-        assert_eq!(self.univs.get(&uidxp), None);
+        assert!(!self.univs.contains_key(&uidxp));
         self.has_name(nidx);
         self.univs.insert(uidxp, Univ::Param(nidx));
     }
@@ -163,6 +163,26 @@ impl Environment {
                 self.univ_to_string(*u2)
             ),
             Univ::Param(n) => self.name_to_string(*n),
+        }
+    }
+
+    pub fn add_expr_sort(&mut self, eidxp: ExprIdx, uidx: UnivIdx) {
+        assert!(!self.exprs.contains_key(&eidxp));
+        self.has_univ(uidx);
+        self.exprs.insert(eidxp, Expr::Sort(uidx));
+    }
+
+    pub fn add_expr_bound_var(&mut self, eidxp: ExprIdx, i: usize) {
+        assert!(!self.exprs.contains_key(&eidxp));
+        self.exprs.insert(eidxp, Expr::BoundVar(i));
+    }
+
+    pub fn expr_to_string(&self, eidx: ExprIdx) -> String {
+        let expr = self.exprs.get(&eidx).expect("Expr not found");
+        match expr {
+            Expr::Sort(u) => format!("Sort {}", self.univ_to_string(*u)),
+            Expr::BoundVar(i) => format!("var[{}]", i),
+            _ => todo!(),
         }
     }
 }
