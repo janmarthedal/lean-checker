@@ -115,7 +115,7 @@ impl Parser {
     }
 
     fn post_add_expr(&self, idx: Index) {
-        println!("Expr: {}", self.env.expr_to_string(idx, &None));
+        println!("Expr: {}", self.env.expr_to_string(idx));
     }
 
     fn parse_es(&mut self, idx: Index, s: &str) -> IResult<()> {

@@ -91,6 +91,7 @@ pub struct Environment {
     names: HashMap<NameIdx, Name>,
     univs: HashMap<UnivIdx, Univ>,
     exprs: HashMap<ExprIdx, Expr>,
+    show_var_stack: bool,
 }
 
 impl Environment {
@@ -101,6 +102,7 @@ impl Environment {
             names: HashMap::new(),
             univs,
             exprs: HashMap::new(),
+            show_var_stack: false,
         }
     }
 
@@ -223,59 +225,45 @@ impl Environment {
             .insert(eidxp, Expr::Lambda(info, nidx, eidx1, eidx2));
     }
 
-    pub fn expr_to_string(&self, eidx: ExprIdx, var_stack: &Option<Vec<String>>) -> String {
+    pub fn expr_to_string(&self, eidx: ExprIdx) -> String {
+        let mut var_stack: Vec<String> = vec![];
+        let result = self.expr_to_string_help(eidx, &mut var_stack);
+        assert!(var_stack.is_empty());
+        result
+    }
+
+    fn pi_or_lambda_to_string(
+        &self,
+        info: &InfoAnnotation,
+        nidx: NameIdx,
+        eidx1: ExprIdx,
+        eidx2: ExprIdx,
+        var_stack: &mut Vec<String>,
+    ) -> String {
+        let delims = info.to_delims();
+        let var_name = self.name_to_string(nidx);
+        var_stack.push(var_name.clone());
+        let e1 = self.expr_to_string_help(eidx1, var_stack);
+        let e2 = self.expr_to_string_help(eidx2, var_stack);
+        var_stack.pop();
+        let mut result = format!("{}{} : {}{}, {}", delims.0, var_name, e1, delims.1, e2);
+        if self.show_var_stack {
+            result.push_str(&format!(" [{}]", var_stack.join(",")));
+        }
+        result
+    }
+
+    fn expr_to_string_help(&self, eidx: ExprIdx, var_stack: &mut Vec<String>) -> String {
         let expr = self.exprs.get(&eidx).expect("Expr not found");
         match expr {
             Expr::Sort(u) => format!("Sort {}", self.univ_to_string(*u)),
-            Expr::BoundVar(i) => match var_stack {
-                Some(vs) => {
-                    if *i < vs.len() {
-                        vs[*i].to_string()
-                    } else {
-                        format!("<{}>", i)
-                    }
-                }
+            Expr::BoundVar(i) => match var_stack.get(*i) {
+                Some(s) => s.clone(),
                 None => format!("<{}>", i),
             },
-            Expr::Pi(info, n, i1, i2) => {
-                let delims = info.to_delims();
-                let var_name = self.name_to_string(*n);
-                let new_var_stack = Some(match var_stack {
-                    Some(vs) => {
-                        let mut nvs = vs.clone();
-                        nvs.push(var_name.clone());
-                        nvs
-                    }
-                    None => vec![var_name.clone()],
-                });
-                format!(
-                    "{}{} : {}{}, {}",
-                    delims.0,
-                    var_name,
-                    self.expr_to_string(*i1, &new_var_stack),
-                    delims.1,
-                    self.expr_to_string(*i2, &new_var_stack)
-                )
-            }
+            Expr::Pi(info, n, i1, i2) => self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack),
             Expr::Lambda(info, n, i1, i2) => {
-                let delims = info.to_delims();
-                let var_name = self.name_to_string(*n);
-                let new_var_stack = Some(match var_stack {
-                    Some(vs) => {
-                        let mut nvs = vs.clone();
-                        nvs.push(var_name.clone());
-                        nvs
-                    }
-                    None => vec![var_name.clone()],
-                });
-                format!(
-                    "{}{} : {}{}, {}",
-                    delims.0,
-                    var_name,
-                    self.expr_to_string(*i1, &new_var_stack),
-                    delims.1,
-                    self.expr_to_string(*i2, &new_var_stack)
-                )
+                self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack)
             }
         }
     }
