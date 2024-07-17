@@ -11,10 +11,10 @@ type Index = usize;
 
 fn parse_info_annotation(s: &str) -> IResult<InfoAnnotation> {
     match s {
-        "#BD" => Ok(InfoAnnotation::Paren),
-        "#BI" => Ok(InfoAnnotation::Curly),
-        "#BS" => Ok(InfoAnnotation::DoubleCurly),
-        "#BC" => Ok(InfoAnnotation::Square),
+        "#BD" => Ok(InfoAnnotation::Default),
+        "#BI" => Ok(InfoAnnotation::Implicit),
+        "#BS" => Ok(InfoAnnotation::StrictImplicit),
+        "#BC" => Ok(InfoAnnotation::InstImplicit),
         _ => Err("Expecting info tag"),
     }
 }
@@ -48,7 +48,7 @@ impl Parser {
     }
 
     fn post_add_name(&self, idx: Index) {
-        println!("Name: {}", self.env.name_to_string(idx));
+        println!("Name {}: {}", idx, self.env.name_to_string(idx));
     }
 
     fn parse_ni(&mut self, idx: Index, s: &str) -> IResult<()> {
@@ -76,15 +76,15 @@ impl Parser {
      * <uidx'> #UP  <nidx>
      */
 
-    fn post_add_univ(&self, idx: Index) {
-        println!("Univ: {}", self.env.univ_to_string(idx));
+    fn post_add_level(&self, idx: Index) {
+        println!("Level {}: {}", idx, self.env.level_to_string(idx));
     }
 
     fn parse_us(&mut self, idx: Index, s: &str) -> IResult<()> {
         let (u, rest) = next_idx(s).ok_or("Expecting index")?;
         check_eol(rest)?;
-        self.env.add_univ_succ(idx, u);
-        self.post_add_univ(idx);
+        self.env.add_level_succ(idx, u);
+        self.post_add_level(idx);
         Ok(())
     }
 
@@ -92,8 +92,8 @@ impl Parser {
         let (u1, rest) = next_idx(s).ok_or("Expecting index")?;
         let (u2, rest) = next_idx(rest).ok_or("Expecting index")?;
         check_eol(rest)?;
-        self.env.add_univ_max(idx, u1, u2);
-        self.post_add_univ(idx);
+        self.env.add_level_max(idx, u1, u2);
+        self.post_add_level(idx);
         Ok(())
     }
 
@@ -101,21 +101,21 @@ impl Parser {
         let (u1, rest) = next_idx(s).ok_or("Expecting index")?;
         let (u2, rest) = next_idx(rest).ok_or("Expecting index")?;
         check_eol(rest)?;
-        self.env.add_univ_imax(idx, u1, u2);
-        self.post_add_univ(idx);
+        self.env.add_level_imax(idx, u1, u2);
+        self.post_add_level(idx);
         Ok(())
     }
 
     fn parse_up(&mut self, idx: Index, s: &str) -> IResult<()> {
         let (n, rest) = next_idx(s).ok_or("Expecting index")?;
         check_eol(rest)?;
-        self.env.add_univ_param(idx, n);
-        self.post_add_univ(idx);
+        self.env.add_level_param(idx, n);
+        self.post_add_level(idx);
         Ok(())
     }
 
     fn post_add_expr(&self, idx: Index) {
-        println!("Expr: {}", self.env.expr_to_string(idx));
+        println!("Expr {}: {}", idx, self.env.expr_to_string(idx));
     }
 
     fn parse_es(&mut self, idx: Index, s: &str) -> IResult<()> {
@@ -160,33 +160,74 @@ impl Parser {
         Ok(())
     }
 
+    fn post_add_constant(&self, idx: Index) {
+        println!("Constant {}: {}", idx, self.env.constant_to_string(idx));
+    }
+
+    // #DEF <nidx> <eidx_1> <edix_2> <nidx*>
+    fn parse_def(&mut self, s: &str) -> IResult<()> {
+        let (nidx, rest) = next_idx(s).ok_or("Expecting index")?;
+        let (eidx1, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (eidx2, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let mut univ_nidxs: Vec<Index> = vec![];
+        let mut rest = rest;
+        while let Some((ni, r)) = next_idx(rest) {
+            univ_nidxs.push(ni);
+            rest = r;
+        }
+        check_eol(rest)?;
+        self.env.add_definition(nidx, eidx1, eidx2, univ_nidxs);
+        self.post_add_constant(nidx);
+        Ok(())
+    }
+
     fn parse_index_command(&mut self, idx: Index, s: &str) -> IResult<()> {
         let (cmd, rest) = next(s).ok_or("Expecting index command")?;
         match cmd {
             "#NI" => self.parse_ni(idx, rest),
             "#NS" => self.parse_ns(idx, rest),
+
             "#US" => self.parse_us(idx, rest),
             "#UM" => self.parse_um(idx, rest),
             "#UIM" => self.parse_uim(idx, rest),
             "#UP" => self.parse_up(idx, rest),
+
             "#ES" => self.parse_es(idx, rest),
             "#EV" => self.parse_ev(idx, rest),
             "#EP" => self.parse_ep(idx, rest),
             "#EL" => self.parse_el(idx, rest),
+            "#EC" => todo!("#EC"),
+            "#EA" => todo!("#EA"),
+            "#EJ" => todo!("#EJ"),
+            "#ELN" => todo!("#ELN"),
+            "#ELS" => todo!("#ELS"),
+            "#EZ" => todo!("#EZ"),
+
             _ => return Err("Unsupported index command"),
         }?;
         Ok(())
     }
 
-    fn parse_command(&mut self, _s: &str) -> IResult<()> {
-        Err("Invalid command")
+    fn parse_command(&mut self, cmd: &str, rest: &str) -> IResult<()> {
+        match cmd {
+            "#DEF" => self.parse_def(rest),
+            "#AX" => todo!("#AX"),
+            "#IND" => todo!("#IND"),
+            "#QUOT" => todo!("#QUOT"),
+            "#PREFIX" => todo!("#PREFIX"),
+            "#POSTFIX" => todo!("#POSTFIX"),
+            "#INFIX" => todo!("#INFIX"),
+
+            _ => return Err("Unsupported command"),
+        }?;
+        Ok(())
     }
 
     fn parse_line(&mut self, line: &str) -> IResult<()> {
         let (first, rest) = next(line).ok_or("Expecting index or command")?;
         match first.parse::<usize>() {
             Ok(idx) => self.parse_index_command(idx, rest),
-            Err(_) => self.parse_command(rest),
+            Err(_) => self.parse_command(first, rest),
         }
     }
 

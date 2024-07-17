@@ -2,7 +2,7 @@ use core::fmt;
 use std::collections::HashMap;
 
 type NameIdx = usize;
-type UnivIdx = usize;
+type LevelIdx = usize;
 type ExprIdx = usize;
 
 /*
@@ -39,11 +39,11 @@ struct Name {
  */
 
 #[derive(Debug, PartialEq)]
-enum Univ {
+enum Level {
     Zero,
-    Succ(UnivIdx),
-    Max(UnivIdx, UnivIdx),
-    IMax(UnivIdx, UnivIdx),
+    Succ(LevelIdx),
+    Max(LevelIdx, LevelIdx),
+    IMax(LevelIdx, LevelIdx),
     Param(NameIdx),
 }
 
@@ -58,50 +58,58 @@ enum Univ {
  * <eidx'> #EJ <nidx> <integer> <eidx>
  * <eidx'> #ELN <integer>
  * <eidx'> #ELS <hex>*      // String as UTF8 bytes in hex
+ * <eidx'> #EZ <nidx> <eidx_1> <eidx_2> <eidx_3>
  */
 
 pub enum InfoAnnotation {
-    Paren,       // #BD
-    Curly,       // #BI
-    DoubleCurly, // #BS
-    Square,      // #BC
+    Default,         // #BD
+    Implicit,        // #BI
+    StrictImplicit,  // #BS
+    InstImplicit,    // #BC
 }
 
 impl InfoAnnotation {
     fn to_delims(&self) -> (&'static str, &'static str) {
         match self {
-            InfoAnnotation::Paren => ("(", ")"),
-            InfoAnnotation::Curly => ("{", "}"),
-            InfoAnnotation::DoubleCurly => ("{{", "}}"),
-            InfoAnnotation::Square => ("[", "]"),
+            InfoAnnotation::Default => ("(", ")"),
+            InfoAnnotation::Implicit => ("{", "}"),
+            InfoAnnotation::StrictImplicit => ("{{", "}}"),
+            InfoAnnotation::InstImplicit => ("[", "]"),
         }
     }
 }
 
 enum Expr {
     BoundVar(usize),
-    Sort(UnivIdx),
+    Sort(LevelIdx),
     // Constant(NameIdx, Vec<UnivIdx>),
     // FunAppl(ExprIdx, ExprIdx),
     Lambda(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
     Pi(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
 }
 
+enum Const {
+    // type, body, level_names
+    Def(ExprIdx, ExprIdx, Vec<NameIdx>),
+}
+
 pub struct Environment {
     names: HashMap<NameIdx, Name>,
-    univs: HashMap<UnivIdx, Univ>,
+    levels: HashMap<LevelIdx, Level>,
     exprs: HashMap<ExprIdx, Expr>,
+    consts: HashMap<NameIdx, Const>,
     show_var_stack: bool,
 }
 
 impl Environment {
     pub fn new() -> Self {
-        let mut univs = HashMap::new();
-        univs.insert(0, Univ::Zero);
+        let mut levels = HashMap::new();
+        levels.insert(0, Level::Zero);
         Self {
             names: HashMap::new(),
-            univs,
+            levels,
             exprs: HashMap::new(),
+            consts: HashMap::new(),
             show_var_stack: false,
         }
     }
@@ -110,8 +118,8 @@ impl Environment {
         assert!(self.names.contains_key(&idx));
     }
 
-    fn has_univ(&self, idx: UnivIdx) {
-        assert!(self.univs.contains_key(&idx));
+    fn has_level(&self, idx: LevelIdx) {
+        assert!(self.levels.contains_key(&idx));
     }
 
     fn has_expr(&self, idx: ExprIdx) {
@@ -126,66 +134,35 @@ impl Environment {
         self.names.insert(idx, Name { item, parent });
     }
 
-    pub fn name_to_string(&self, name_idx: NameIdx) -> String {
-        let mut items: Vec<String> = Vec::new();
-        let mut idx = name_idx;
-        while idx != 0 {
-            let item = self.names.get(&idx).expect("Name not found");
-            items.push(item.item.to_string());
-            idx = item.parent;
-        }
-        items.reverse();
-        items.join(".")
+    pub fn add_level_succ(&mut self, uidxp: LevelIdx, uidx: LevelIdx) {
+        assert!(!self.levels.contains_key(&uidxp));
+        self.has_level(uidx);
+        self.levels.insert(uidxp, Level::Succ(uidx));
     }
 
-    pub fn add_univ_succ(&mut self, uidxp: UnivIdx, uidx: UnivIdx) {
-        assert!(!self.univs.contains_key(&uidxp));
-        self.has_univ(uidx);
-        self.univs.insert(uidxp, Univ::Succ(uidx));
+    pub fn add_level_max(&mut self, uidxp: LevelIdx, uidx1: LevelIdx, uidx2: LevelIdx) {
+        assert!(!self.levels.contains_key(&uidxp));
+        self.has_level(uidx1);
+        self.has_level(uidx2);
+        self.levels.insert(uidxp, Level::Max(uidx1, uidx2));
     }
 
-    pub fn add_univ_max(&mut self, uidxp: UnivIdx, uidx1: UnivIdx, uidx2: UnivIdx) {
-        assert!(!self.univs.contains_key(&uidxp));
-        self.has_univ(uidx1);
-        self.has_univ(uidx2);
-        self.univs.insert(uidxp, Univ::Max(uidx1, uidx2));
+    pub fn add_level_imax(&mut self, uidxp: LevelIdx, uidx1: LevelIdx, uidx2: LevelIdx) {
+        assert!(!self.levels.contains_key(&uidxp));
+        self.has_level(uidx1);
+        self.has_level(uidx2);
+        self.levels.insert(uidxp, Level::IMax(uidx1, uidx2));
     }
 
-    pub fn add_univ_imax(&mut self, uidxp: UnivIdx, uidx1: UnivIdx, uidx2: UnivIdx) {
-        assert!(!self.univs.contains_key(&uidxp));
-        self.has_univ(uidx1);
-        self.has_univ(uidx2);
-        self.univs.insert(uidxp, Univ::IMax(uidx1, uidx2));
-    }
-
-    pub fn add_univ_param(&mut self, uidxp: UnivIdx, nidx: NameIdx) {
-        assert!(!self.univs.contains_key(&uidxp));
+    pub fn add_level_param(&mut self, uidxp: LevelIdx, nidx: NameIdx) {
+        assert!(!self.levels.contains_key(&uidxp));
         self.has_name(nidx);
-        self.univs.insert(uidxp, Univ::Param(nidx));
+        self.levels.insert(uidxp, Level::Param(nidx));
     }
 
-    pub fn univ_to_string(&self, uidx: UnivIdx) -> String {
-        let univ = self.univs.get(&uidx).expect("Univ not found");
-        match univ {
-            Univ::Zero => "0".to_string(),
-            Univ::Succ(u) => format!("(succ {})", self.univ_to_string(*u)),
-            Univ::Max(u1, u2) => format!(
-                "(max {} {})",
-                self.univ_to_string(*u1),
-                self.univ_to_string(*u2)
-            ),
-            Univ::IMax(u1, u2) => format!(
-                "(imax {} {})",
-                self.univ_to_string(*u1),
-                self.univ_to_string(*u2)
-            ),
-            Univ::Param(n) => self.name_to_string(*n),
-        }
-    }
-
-    pub fn add_expr_sort(&mut self, eidxp: ExprIdx, uidx: UnivIdx) {
+    pub fn add_expr_sort(&mut self, eidxp: ExprIdx, uidx: LevelIdx) {
         assert!(!self.exprs.contains_key(&eidxp));
-        self.has_univ(uidx);
+        self.has_level(uidx);
         self.exprs.insert(eidxp, Expr::Sort(uidx));
     }
 
@@ -225,6 +202,53 @@ impl Environment {
             .insert(eidxp, Expr::Lambda(info, nidx, eidx1, eidx2));
     }
 
+    // #DEF <nidx> <eidx_1> <edix_2> <nidx*>
+    pub fn add_definition(
+        &mut self,
+        nidx: NameIdx,
+        eidx1: ExprIdx,
+        eidx2: ExprIdx,
+        univ_names: Vec<NameIdx>,
+    ) {
+        assert!(!self.consts.contains_key(&nidx));
+        self.has_name(nidx);
+        self.has_expr(eidx1);
+        self.has_expr(eidx2);
+        univ_names.iter().for_each(|i| self.has_name(*i));
+        self.consts.insert(nidx, Const::Def(eidx1, eidx2, univ_names));
+    }
+
+    pub fn name_to_string(&self, name_idx: NameIdx) -> String {
+        let mut items: Vec<String> = Vec::new();
+        let mut idx = name_idx;
+        while idx != 0 {
+            let item = self.names.get(&idx).expect("Name not found");
+            items.push(item.item.to_string());
+            idx = item.parent;
+        }
+        items.reverse();
+        items.join(".")
+    }
+
+    pub fn level_to_string(&self, uidx: LevelIdx) -> String {
+        let univ = self.levels.get(&uidx).expect("Univ not found");
+        match univ {
+            Level::Zero => "0".to_string(),
+            Level::Succ(u) => format!("(succ {})", self.level_to_string(*u)),
+            Level::Max(u1, u2) => format!(
+                "(max {} {})",
+                self.level_to_string(*u1),
+                self.level_to_string(*u2)
+            ),
+            Level::IMax(u1, u2) => format!(
+                "(imax {} {})",
+                self.level_to_string(*u1),
+                self.level_to_string(*u2)
+            ),
+            Level::Param(n) => self.name_to_string(*n),
+        }
+    }
+
     pub fn expr_to_string(&self, eidx: ExprIdx) -> String {
         let mut var_stack: Vec<String> = vec![];
         let result = self.expr_to_string_help(eidx, &mut var_stack);
@@ -256,7 +280,7 @@ impl Environment {
     fn expr_to_string_help(&self, eidx: ExprIdx, var_stack: &mut Vec<String>) -> String {
         let expr = self.exprs.get(&eidx).expect("Expr not found");
         match expr {
-            Expr::Sort(u) => format!("Sort {}", self.univ_to_string(*u)),
+            Expr::Sort(u) => format!("Sort {}", self.level_to_string(*u)),
             Expr::BoundVar(i) => match var_stack.get(*i) {
                 Some(s) => s.clone(),
                 None => format!("<{}>", i),
@@ -264,6 +288,35 @@ impl Environment {
             Expr::Pi(info, n, i1, i2) => self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack),
             Expr::Lambda(info, n, i1, i2) => {
                 self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack)
+            }
+        }
+    }
+
+    fn def_to_string(&self, name: &String, eidx1: ExprIdx, eidx2: ExprIdx, level_name_idxs: &Vec<NameIdx>) -> String {
+        let univ_names = level_name_idxs
+            .iter()
+            .map(|ni| self.name_to_string(*ni))
+            .collect::<Vec<String>>()
+            .join(",");
+        let univ_names_fmt = if univ_names.is_empty() {
+            "".to_string()
+        } else {
+            format!(".{{{}}}", univ_names)
+        };
+        let type_expr = self.expr_to_string(eidx1);
+        let body_expr = self.expr_to_string(eidx2);
+        format!(
+            "definition {}{} {} := {}",
+            name, univ_names_fmt, type_expr, body_expr
+        )
+    }
+
+    pub fn constant_to_string(&self, nidx: NameIdx) -> String {
+        let cnst = self.consts.get(&nidx).expect("Constant not found");
+        let name = self.name_to_string(nidx);
+        match cnst {
+            Const::Def(eidx1, eidx2, level_names) => {
+                self.def_to_string(&name, *eidx1, *eidx2, level_names)
             }
         }
     }
@@ -293,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn universes() {
+    fn levels() {
         let mut env = Environment::new();
         /*
          * 1 #NS 0 l1
@@ -307,12 +360,12 @@ mod tests {
          */
         env.add_name(1, NameItem::Str("l1".to_string()), 0);
         env.add_name(2, NameItem::Str("l2".to_string()), 0);
-        env.add_univ_succ(1, 0);
-        env.add_univ_succ(2, 1);
-        env.add_univ_param(3, 1);
-        env.add_univ_param(4, 2);
-        env.add_univ_max(5, 2, 3);
-        env.add_univ_imax(6, 5, 4);
-        assert_eq!(env.univ_to_string(6), "(imax (max (succ (succ 0)) l1) l2)");
+        env.add_level_succ(1, 0);
+        env.add_level_succ(2, 1);
+        env.add_level_param(3, 1);
+        env.add_level_param(4, 2);
+        env.add_level_max(5, 2, 3);
+        env.add_level_imax(6, 5, 4);
+        assert_eq!(env.level_to_string(6), "(imax (max (succ (succ 0)) l1) l2)");
     }
 }
