@@ -206,8 +206,8 @@ impl Parser {
         Ok(())
     }
 
-    fn post_add_constant(&self, idx: Index) {
-        println!("Constant {}: {}", idx, self.env.constant_to_string(idx));
+    fn post_add_declaration(&self, idx: Index) {
+        println!("Declaration {}: {}", idx, self.env.decl_to_string(idx));
     }
 
     // #DEF <nidx> <eidx_1> <edix_2> <nidx*>
@@ -223,7 +223,7 @@ impl Parser {
         }
         check_eol(rest)?;
         self.env.add_definition(nidx, eidx1, eidx2, univ_nidxs);
-        self.post_add_constant(nidx);
+        self.post_add_declaration(nidx);
         Ok(())
     }
 

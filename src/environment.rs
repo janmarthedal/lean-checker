@@ -88,7 +88,7 @@ enum Expr {
     Pi(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
 }
 
-enum Const {
+enum Decl {
     // type, body, level_names
     Def(ExprIdx, ExprIdx, Vec<NameIdx>),
 }
@@ -97,7 +97,7 @@ pub struct Environment {
     names: HashMap<NameIdx, Name>,
     levels: HashMap<LevelIdx, Level>,
     exprs: HashMap<ExprIdx, Expr>,
-    consts: HashMap<NameIdx, Const>,
+    decls: HashMap<NameIdx, Decl>,
     show_var_stack: bool,
 }
 
@@ -109,7 +109,7 @@ impl Environment {
             names: HashMap::new(),
             levels,
             exprs: HashMap::new(),
-            consts: HashMap::new(),
+            decls: HashMap::new(),
             show_var_stack: false,
         }
     }
@@ -210,12 +210,12 @@ impl Environment {
         eidx2: ExprIdx,
         univ_names: Vec<NameIdx>,
     ) {
-        assert!(!self.consts.contains_key(&nidx));
+        assert!(!self.decls.contains_key(&nidx));
         self.has_name(nidx);
         self.has_expr(eidx1);
         self.has_expr(eidx2);
         univ_names.iter().for_each(|i| self.has_name(*i));
-        self.consts.insert(nidx, Const::Def(eidx1, eidx2, univ_names));
+        self.decls.insert(nidx, Decl::Def(eidx1, eidx2, univ_names));
     }
 
     pub fn name_to_string(&self, name_idx: NameIdx) -> String {
@@ -312,11 +312,11 @@ impl Environment {
         )
     }
 
-    pub fn constant_to_string(&self, nidx: NameIdx) -> String {
-        let cnst = self.consts.get(&nidx).expect("Constant not found");
+    pub fn decl_to_string(&self, nidx: NameIdx) -> String {
+        let cnst = self.decls.get(&nidx).expect("Declaration not found");
         let name = self.name_to_string(nidx);
         match cnst {
-            Const::Def(eidx1, eidx2, level_names) => {
+            Decl::Def(eidx1, eidx2, level_names) => {
                 self.def_to_string(&name, *eidx1, *eidx2, level_names)
             }
         }
