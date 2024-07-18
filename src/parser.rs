@@ -2,20 +2,66 @@ use std::io::{prelude::*, BufReader, Read};
 
 use super::environment::{Environment, InfoAnnotation, NameItem};
 
+struct LineError {
+    msg: String,
+}
+
+impl From<&str> for LineError {
+    fn from(value: &str) -> Self {
+        Self {
+            msg: String::from(value),
+        }
+    }
+}
+
+impl From<std::io::Error> for LineError {
+    fn from(err: std::io::Error) -> Self {
+        Self {
+            msg: String::from(err.to_string()),
+        }
+    }
+}
+
+impl std::fmt::Display for LineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.msg.fmt(f)
+    }
+}
+
+pub struct ParseError {
+    line_error: LineError,
+    line_no: usize,
+}
+
+impl ParseError {
+    fn new(line_error: LineError, line_no: usize) -> Self {
+        Self {
+            line_error,
+            line_no,
+        }
+    }
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Parse error at line {}: {}", self.line_no, self.line_error)
+    }
+}
+
 struct Parser {
     env: Environment,
 }
 
-type IResult<T> = Result<T, &'static str>;
+type LineResult<T> = std::result::Result<T, LineError>;
 type Index = usize;
 
-fn parse_info_annotation(s: &str) -> IResult<InfoAnnotation> {
+fn parse_info_annotation(s: &str) -> LineResult<InfoAnnotation> {
     match s {
         "#BD" => Ok(InfoAnnotation::Default),
         "#BI" => Ok(InfoAnnotation::Implicit),
         "#BS" => Ok(InfoAnnotation::StrictImplicit),
         "#BC" => Ok(InfoAnnotation::InstImplicit),
-        _ => Err("Expecting info tag"),
+        _ => Err(LineError::from("Expecting info tag")),
     }
 }
 
@@ -33,9 +79,9 @@ fn next_idx(s: &str) -> Option<(Index, &str)> {
     }
 }
 
-fn check_eol(s: &str) -> IResult<()> {
+fn check_eol(s: &str) -> LineResult<()> {
     match next(s) {
-        Some(_) => Err("Expecting EOL"),
+        Some(_) => Err(LineError::from("Expecting EOL")),
         None => Ok(()),
     }
 }
@@ -51,7 +97,7 @@ impl Parser {
         println!("Name {}: {}", idx, self.env.name_to_string(idx));
     }
 
-    fn parse_ni(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_ni(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (p, rest) = next_idx(s).ok_or("Expecting index")?;
         let (i, rest) = next_idx(rest).ok_or("Expecting integer")?;
         check_eol(rest)?;
@@ -60,7 +106,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_ns(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_ns(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (p, rest) = next_idx(s).ok_or("Expecting index")?;
         let (s, rest) = next(rest).ok_or("Expecting identifier")?;
         check_eol(rest)?;
@@ -80,7 +126,7 @@ impl Parser {
         println!("Level {}: {}", idx, self.env.level_to_string(idx));
     }
 
-    fn parse_us(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_us(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (u, rest) = next_idx(s).ok_or("Expecting index")?;
         check_eol(rest)?;
         self.env.add_level_succ(idx, u);
@@ -88,7 +134,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_um(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_um(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (u1, rest) = next_idx(s).ok_or("Expecting index")?;
         let (u2, rest) = next_idx(rest).ok_or("Expecting index")?;
         check_eol(rest)?;
@@ -97,7 +143,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_uim(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_uim(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (u1, rest) = next_idx(s).ok_or("Expecting index")?;
         let (u2, rest) = next_idx(rest).ok_or("Expecting index")?;
         check_eol(rest)?;
@@ -106,7 +152,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_up(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_up(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (n, rest) = next_idx(s).ok_or("Expecting index")?;
         check_eol(rest)?;
         self.env.add_level_param(idx, n);
@@ -118,7 +164,7 @@ impl Parser {
         println!("Expr {}: {}", idx, self.env.expr_to_string(idx));
     }
 
-    fn parse_es(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_es(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (u, rest) = next_idx(s).ok_or("Expecting index")?;
         check_eol(rest)?;
         self.env.add_expr_sort(idx, u);
@@ -126,7 +172,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_ev(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_ev(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (i, rest) = next_idx(s).ok_or("Expecting integer")?;
         check_eol(rest)?;
         self.env.add_expr_bound_var(idx, i);
@@ -135,7 +181,7 @@ impl Parser {
     }
 
     // <eidx'> #EP <info> <nidx> <eidx_1> <eidx_2>
-    fn parse_ep(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_ep(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (info, rest) = next(s).ok_or("Expecting info")?;
         let info = parse_info_annotation(info)?;
         let (nidx, rest) = next_idx(rest).ok_or("Expecting index")?;
@@ -148,7 +194,7 @@ impl Parser {
     }
 
     // <eidx'> #EL <info> <nidx> <eidx_1> <eidx_2>
-    fn parse_el(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_el(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (info, rest) = next(s).ok_or("Expecting info")?;
         let info = parse_info_annotation(info)?;
         let (nidx, rest) = next_idx(rest).ok_or("Expecting index")?;
@@ -165,7 +211,7 @@ impl Parser {
     }
 
     // #DEF <nidx> <eidx_1> <edix_2> <nidx*>
-    fn parse_def(&mut self, s: &str) -> IResult<()> {
+    fn parse_def(&mut self, s: &str) -> LineResult<()> {
         let (nidx, rest) = next_idx(s).ok_or("Expecting index")?;
         let (eidx1, rest) = next_idx(rest).ok_or("Expecting index")?;
         let (eidx2, rest) = next_idx(rest).ok_or("Expecting index")?;
@@ -181,7 +227,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_index_command(&mut self, idx: Index, s: &str) -> IResult<()> {
+    fn parse_index_command(&mut self, idx: Index, s: &str) -> LineResult<()> {
         let (cmd, rest) = next(s).ok_or("Expecting index command")?;
         match cmd {
             "#NI" => self.parse_ni(idx, rest),
@@ -203,12 +249,12 @@ impl Parser {
             "#ELS" => todo!("#ELS"),
             "#EZ" => todo!("#EZ"),
 
-            _ => return Err("Unsupported index command"),
+            _ => return Err(LineError::from("Unsupported index command")),
         }?;
         Ok(())
     }
 
-    fn parse_command(&mut self, cmd: &str, rest: &str) -> IResult<()> {
+    fn parse_command(&mut self, cmd: &str, rest: &str) -> LineResult<()> {
         match cmd {
             "#DEF" => self.parse_def(rest),
             "#AX" => todo!("#AX"),
@@ -218,12 +264,12 @@ impl Parser {
             "#POSTFIX" => todo!("#POSTFIX"),
             "#INFIX" => todo!("#INFIX"),
 
-            _ => return Err("Unsupported command"),
+            _ => return Err(LineError::from("Unsupported command")),
         }?;
         Ok(())
     }
 
-    fn parse_line(&mut self, line: &str) -> IResult<()> {
+    fn parse_line(&mut self, line: &str) -> LineResult<()> {
         let (first, rest) = next(line).ok_or("Expecting index or command")?;
         match first.parse::<usize>() {
             Ok(idx) => self.parse_index_command(idx, rest),
@@ -236,19 +282,16 @@ impl Parser {
     }
 }
 
-pub fn parse_lines<R: Read>(file: R) -> Result<Environment, ()> {
+pub fn parse_lines<R: Read>(file: R) -> std::result::Result<Environment, ParseError> {
     let reader = BufReader::new(file);
 
     let mut parser = Parser::new();
     let mut line_no = 1;
 
     for line in reader.lines() {
-        let line = line.unwrap();
+        let line = line.map_err(|e| ParseError::new(LineError::from(e), line_no))?;
 
-        if let Err(e) = parser.parse_line(&line) {
-            println!("{} in line {}: {}", e, line_no, line);
-            return Err(());
-        }
+        parser.parse_line(&line).map_err(|line_error| ParseError::new(line_error, line_no))?;
 
         line_no += 1;
     }
