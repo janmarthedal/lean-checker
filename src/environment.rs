@@ -266,8 +266,8 @@ impl Environment {
     ) -> String {
         let delims = info.to_delims();
         let var_name = self.name_to_string(nidx);
-        var_stack.push(var_name.clone());
         let e1 = self.expr_to_string_help(eidx1, var_stack);
+        var_stack.push(var_name.clone());
         let e2 = self.expr_to_string_help(eidx2, var_stack);
         var_stack.pop();
         let mut result = format!("{}{} : {}{}, {}", delims.0, var_name, e1, delims.1, e2);
@@ -281,9 +281,10 @@ impl Environment {
         let expr = self.exprs.get(&eidx).expect("Expr not found");
         match expr {
             Expr::Sort(u) => format!("Sort {}", self.level_to_string(*u)),
-            Expr::BoundVar(i) => match var_stack.get(*i) {
-                Some(s) => s.clone(),
-                None => format!("<{}>", i),
+            Expr::BoundVar(i) => if *i < var_stack.len() {
+                var_stack[var_stack.len() - 1 - *i].clone()
+            } else {
+                format!("<{}>", i)
             },
             Expr::Pi(info, n, i1, i2) => self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack),
             Expr::Lambda(info, n, i1, i2) => {
