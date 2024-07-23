@@ -17,7 +17,7 @@ impl From<&str> for LineError {
 impl From<std::io::Error> for LineError {
     fn from(err: std::io::Error) -> Self {
         Self {
-            msg: String::from(err.to_string()),
+            msg: err.to_string(),
         }
     }
 }
@@ -44,7 +44,11 @@ impl ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Parse error at line {}: {}", self.line_no, self.line_error)
+        write!(
+            f,
+            "Parse error at line {}: {}",
+            self.line_no, self.line_error
+        )
     }
 }
 
@@ -206,6 +210,31 @@ impl Parser {
         Ok(())
     }
 
+    // <eidx'> #EC <nidx> <uidx>*
+    fn parse_ec(&mut self, idx: Index, s: &str) -> LineResult<()> {
+        let (nidx, rest) = next_idx(s).ok_or("Expecting index")?;
+        let mut level_idxs: Vec<Index> = vec![];
+        let mut rest = rest;
+        while let Some((ni, r)) = next_idx(rest) {
+            level_idxs.push(ni);
+            rest = r;
+        }
+        check_eol(rest)?;
+        self.env.add_expr_constant(idx, nidx, level_idxs);
+        self.post_add_expr(idx);
+        Ok(())
+    }
+
+    // <eidx'> #EA <eidx_1> <eidx_2>
+    fn parse_ea(&mut self, idx: Index, s: &str) -> LineResult<()> {
+        let (eidx1, rest) = next_idx(s).ok_or("Expecting index")?;
+        let (eidx2, rest) = next_idx(rest).ok_or("Expecting index")?;
+        check_eol(rest)?;
+        self.env.add_expr_funappl(idx, eidx1, eidx2);
+        self.post_add_expr(idx);
+        Ok(())
+    }
+
     fn post_add_declaration(&self, idx: Index) {
         println!("Declaration {}: {}", idx, self.env.decl_to_string(idx));
     }
@@ -242,8 +271,8 @@ impl Parser {
             "#EV" => self.parse_ev(idx, rest),
             "#EP" => self.parse_ep(idx, rest),
             "#EL" => self.parse_el(idx, rest),
-            "#EC" => todo!("#EC"),
-            "#EA" => todo!("#EA"),
+            "#EC" => self.parse_ec(idx, rest),
+            "#EA" => self.parse_ea(idx, rest),
             "#EJ" => todo!("#EJ"),
             "#ELN" => todo!("#ELN"),
             "#ELS" => todo!("#ELS"),
@@ -291,7 +320,9 @@ pub fn parse_lines<R: Read>(file: R) -> std::result::Result<Environment, ParseEr
     for line in reader.lines() {
         let line = line.map_err(|e| ParseError::new(LineError::from(e), line_no))?;
 
-        parser.parse_line(&line).map_err(|line_error| ParseError::new(line_error, line_no))?;
+        parser
+            .parse_line(&line)
+            .map_err(|line_error| ParseError::new(line_error, line_no))?;
 
         line_no += 1;
     }

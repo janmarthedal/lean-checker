@@ -62,10 +62,10 @@ enum Level {
  */
 
 pub enum InfoAnnotation {
-    Default,         // #BD
-    Implicit,        // #BI
-    StrictImplicit,  // #BS
-    InstImplicit,    // #BC
+    Default,        // #BD
+    Implicit,       // #BI
+    StrictImplicit, // #BS
+    InstImplicit,   // #BC
 }
 
 impl InfoAnnotation {
@@ -82,8 +82,8 @@ impl InfoAnnotation {
 enum Expr {
     BoundVar(usize),
     Sort(LevelIdx),
-    // Constant(NameIdx, Vec<UnivIdx>),
-    // FunAppl(ExprIdx, ExprIdx),
+    Constant(NameIdx, Vec<LevelIdx>),
+    FunAppl(ExprIdx, ExprIdx),
     Lambda(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
     Pi(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
 }
@@ -202,6 +202,20 @@ impl Environment {
             .insert(eidxp, Expr::Lambda(info, nidx, eidx1, eidx2));
     }
 
+    pub fn add_expr_constant(&mut self, eidxp: ExprIdx, nidx: NameIdx, level_idxs: Vec<LevelIdx>) {
+        assert!(!self.exprs.contains_key(&eidxp));
+        self.has_name(nidx);
+        level_idxs.iter().for_each(|li| self.has_level(*li));
+        self.exprs.insert(eidxp, Expr::Constant(nidx, level_idxs));
+    }
+
+    pub fn add_expr_funappl(&mut self, eidxp: ExprIdx, eidx1: ExprIdx, eidx2: ExprIdx) {
+        assert!(!self.exprs.contains_key(&eidxp));
+        self.has_expr(eidx1);
+        self.has_expr(eidx2);
+        self.exprs.insert(eidxp, Expr::FunAppl(eidx1, eidx2));
+    }
+
     // #DEF <nidx> <eidx_1> <edix_2> <nidx*>
     pub fn add_definition(
         &mut self,
@@ -281,19 +295,47 @@ impl Environment {
         let expr = self.exprs.get(&eidx).expect("Expr not found");
         match expr {
             Expr::Sort(u) => format!("Sort {}", self.level_to_string(*u)),
-            Expr::BoundVar(i) => if *i < var_stack.len() {
-                var_stack[var_stack.len() - 1 - *i].clone()
-            } else {
-                format!("<{}>", i)
-            },
+            Expr::BoundVar(i) => {
+                if *i < var_stack.len() {
+                    var_stack[var_stack.len() - 1 - *i].clone()
+                } else {
+                    format!("<{}>", i)
+                }
+            }
             Expr::Pi(info, n, i1, i2) => self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack),
             Expr::Lambda(info, n, i1, i2) => {
                 self.pi_or_lambda_to_string(info, *n, *i1, *i2, var_stack)
             }
+            Expr::Constant(n, lvls) => {
+                let name = self.name_to_string(*n);
+                if lvls.is_empty() {
+                    name
+                } else {
+                    format!(
+                        "{}.{{{}}}",
+                        name,
+                        lvls.iter()
+                            .map(|li| self.level_to_string(*li))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                }
+            }
+            Expr::FunAppl(fe, be) => {
+                let fst = self.expr_to_string_help(*fe, var_stack);
+                let bst = self.expr_to_string_help(*be, var_stack);
+                format!("({} {})", fst, bst)
+            }
         }
     }
 
-    fn def_to_string(&self, name: &String, eidx1: ExprIdx, eidx2: ExprIdx, level_name_idxs: &Vec<NameIdx>) -> String {
+    fn def_to_string(
+        &self,
+        name: &String,
+        eidx1: ExprIdx,
+        eidx2: ExprIdx,
+        level_name_idxs: &[NameIdx],
+    ) -> String {
         let univ_names = level_name_idxs
             .iter()
             .map(|ni| self.name_to_string(*ni))
