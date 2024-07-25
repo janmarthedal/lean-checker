@@ -88,9 +88,14 @@ enum Expr {
     Pi(InfoAnnotation, NameIdx, ExprIdx, ExprIdx),
 }
 
+// #AX <nidx> <eidx> <nidx*>
+// #DEF <nidx> <eidx_1> <edix_2> <nidx*>
+// #IND <num> <nidx> <eidx> <num_intros> <intro>* <nidx*>
 enum Decl {
     // type, body, level_names
     Def(ExprIdx, ExprIdx, Vec<NameIdx>),
+    // parameters, name, type, introduction rules, and universe parameters
+    Ind(usize, ExprIdx, Vec<(NameIdx, ExprIdx)>, Vec<NameIdx>),
 }
 
 pub struct Environment {
@@ -222,14 +227,35 @@ impl Environment {
         nidx: NameIdx,
         eidx1: ExprIdx,
         eidx2: ExprIdx,
-        univ_names: Vec<NameIdx>,
+        level_names: Vec<NameIdx>,
     ) {
         assert!(!self.decls.contains_key(&nidx));
         self.has_name(nidx);
         self.has_expr(eidx1);
         self.has_expr(eidx2);
-        univ_names.iter().for_each(|i| self.has_name(*i));
-        self.decls.insert(nidx, Decl::Def(eidx1, eidx2, univ_names));
+        level_names.iter().for_each(|i| self.has_name(*i));
+        self.decls
+            .insert(nidx, Decl::Def(eidx1, eidx2, level_names));
+    }
+
+    // #IND <num> <nidx> <eidx> <num_intros> <intro>* <nidx*>
+    pub fn add_inductive(
+        &mut self,
+        params: usize,
+        nidx: NameIdx,
+        eidx: ExprIdx,
+        intros: Vec<(NameIdx, ExprIdx)>,
+        level_names: Vec<NameIdx>,
+    ) {
+        assert!(!self.decls.contains_key(&nidx));
+        self.has_expr(eidx);
+        intros.iter().for_each(|(ni, ei)| {
+            self.has_name(*ni);
+            self.has_expr(*ei);
+        });
+        level_names.iter().for_each(|i| self.has_name(*i));
+        self.decls
+            .insert(nidx, Decl::Ind(params, eidx, intros, level_names));
     }
 
     pub fn name_to_string(&self, name_idx: NameIdx) -> String {
@@ -336,30 +362,68 @@ impl Environment {
         eidx2: ExprIdx,
         level_name_idxs: &[NameIdx],
     ) -> String {
-        let univ_names = level_name_idxs
+        let level_names = level_name_idxs
             .iter()
             .map(|ni| self.name_to_string(*ni))
             .collect::<Vec<String>>()
             .join(",");
-        let univ_names_fmt = if univ_names.is_empty() {
+        let level_names_fmt = if level_names.is_empty() {
             "".to_string()
         } else {
-            format!(".{{{}}}", univ_names)
+            format!(".{{{}}}", level_names)
         };
         let type_expr = self.expr_to_string(eidx1);
         let body_expr = self.expr_to_string(eidx2);
         format!(
             "definition {}{} {} := {}",
-            name, univ_names_fmt, type_expr, body_expr
+            name, level_names_fmt, type_expr, body_expr
+        )
+    }
+
+    fn ind_to_string(
+        &self,
+        name: &String,
+        eidx: ExprIdx,
+        intros: &[(NameIdx, ExprIdx)],
+        level_name_idxs: &[LevelIdx],
+    ) -> String {
+        let type_expr = self.expr_to_string(eidx);
+        let level_names = level_name_idxs
+            .iter()
+            .map(|ni| self.name_to_string(*ni))
+            .collect::<Vec<String>>()
+            .join(",");
+        let level_names_fmt = if level_names.is_empty() {
+            "".to_string()
+        } else {
+            format!(" {{{}}}", level_names)
+        };
+        let intros_fmt = intros
+            .iter()
+            .map(|(ni, ei)| {
+                format!(
+                    "\n| {} : {}",
+                    self.name_to_string(*ni),
+                    self.expr_to_string(*ei)
+                )
+            })
+            .collect::<Vec<String>>()
+            .join(" ");
+        format!(
+            "inductive {}{} {}{}",
+            name, level_names_fmt, type_expr, intros_fmt
         )
     }
 
     pub fn decl_to_string(&self, nidx: NameIdx) -> String {
-        let cnst = self.decls.get(&nidx).expect("Declaration not found");
+        let decl = self.decls.get(&nidx).expect("Declaration not found");
         let name = self.name_to_string(nidx);
-        match cnst {
+        match decl {
             Decl::Def(eidx1, eidx2, level_names) => {
                 self.def_to_string(&name, *eidx1, *eidx2, level_names)
+            }
+            Decl::Ind(_params, eidx, intros, level_names) => {
+                self.ind_to_string(&name, *eidx, intros, level_names)
             }
         }
     }

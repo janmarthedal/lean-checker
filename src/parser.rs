@@ -244,14 +244,39 @@ impl Parser {
         let (nidx, rest) = next_idx(s).ok_or("Expecting index")?;
         let (eidx1, rest) = next_idx(rest).ok_or("Expecting index")?;
         let (eidx2, rest) = next_idx(rest).ok_or("Expecting index")?;
-        let mut univ_nidxs: Vec<Index> = vec![];
+        let mut level_nidxs: Vec<Index> = vec![];
         let mut rest = rest;
         while let Some((ni, r)) = next_idx(rest) {
-            univ_nidxs.push(ni);
+            level_nidxs.push(ni);
             rest = r;
         }
         check_eol(rest)?;
-        self.env.add_definition(nidx, eidx1, eidx2, univ_nidxs);
+        self.env.add_definition(nidx, eidx1, eidx2, level_nidxs);
+        self.post_add_declaration(nidx);
+        Ok(())
+    }
+
+    // #IND <num> <nidx> <eidx> <num_intros> <intro>* <nidx*>
+    fn parse_ind(&mut self, s: &str) -> LineResult<()> {
+        let (num, rest) = next_idx(s).ok_or("Expecting number")?;
+        let (nidx, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (eidx, rest) = next_idx(rest).ok_or("Expecting index")?;
+        let (num_intros, rest) = next_idx(rest).ok_or("Expecting number")?;
+        let mut rest = rest;
+        let mut intros: Vec<(Index, Index)> = vec![];
+        for _ in 0..num_intros {
+            let (ni, r) = next_idx(rest).ok_or("Expecting index")?;
+            let (ei, r) = next_idx(r).ok_or("Expecting index")?;
+            intros.push((ni, ei));
+            rest = r;
+        }
+        let mut level_nidxs: Vec<Index> = vec![];
+        while let Some((ni, r)) = next_idx(rest) {
+            level_nidxs.push(ni);
+            rest = r;
+        }
+        check_eol(rest)?;
+        self.env.add_inductive(num, nidx, eidx, intros, level_nidxs);
         self.post_add_declaration(nidx);
         Ok(())
     }
@@ -287,7 +312,7 @@ impl Parser {
         match cmd {
             "#DEF" => self.parse_def(rest),
             "#AX" => todo!("#AX"),
-            "#IND" => todo!("#IND"),
+            "#IND" => self.parse_ind(rest),
             "#QUOT" => todo!("#QUOT"),
             "#PREFIX" => todo!("#PREFIX"),
             "#POSTFIX" => todo!("#POSTFIX"),
